@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Painel de Dispositivos</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-title">
+      <h1>Painel de Dispositivos</h1>
+      <p>Monitoramento e cadastro de telas / players</p>
+    </div>
+  </header>
+
+  <main>
+    <!-- Faixa de aviso de erro: fica escondida por padrão e só aparece via JS
+         quando alguma chamada à API falha (ex: back-end fora do ar) -->
+    <div id="mensagem-erro" class="mensagem-erro" hidden></div>
+
+    <section class="painel-form">
+      <h2>Novo dispositivo</h2>
+      <form id="form-dispositivo">
+        <input type="text" id="input-nome" placeholder="Nome (ex: Totem Entrada)" required />
+        <input type="text" id="input-local" placeholder="Local (ex: Loja Centro)" required />
+        <button type="submit">Cadastrar</button>
+      </form>
+    </section>
+
+    <section class="painel-lista">
+      <table id="tabela-dispositivos">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Local</th>
+            <th>Status</th>
+            <th>Última sincronização</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tabela-corpo">
+          <!-- linhas geradas via script.js -->
+        </tbody>
+      </table>
+      <p id="lista-vazia" class="lista-vazia" hidden>Nenhum dispositivo cadastrado ainda.</p>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
