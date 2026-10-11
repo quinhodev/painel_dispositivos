@@ -179,6 +179,20 @@ th {
   border-bottom: 1px solid var(--border);
 }
 
+/* AC2: cabeçalhos clicáveis para ordenar a tabela */
+th[data-coluna] {
+  cursor: pointer;
+  user-select: none;
+}
+
+th[data-coluna]:hover {
+  color: var(--text);
+}
+
+th.ativa {
+  color: var(--amber);
+}
+
 td {
   padding: 12px 10px;
   border-bottom: 1px solid var(--border);

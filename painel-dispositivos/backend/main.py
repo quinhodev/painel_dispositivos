@@ -1,13 +1,15 @@
 """
-Ponto de entrada da API (rotas HTTP) — versão AC1.
+Ponto de entrada da API (rotas HTTP) — versão AC2.
 
 Este arquivo só ORQUESTRA: recebe a requisição, valida com schemas.py,
 manda os models.py conversarem com o banco via database.py, e devolve
 a resposta. A regra é: nenhuma lógica de banco "crua" deveria morar
 aqui sem passar pelas camadas de baixo.
 
-Escopo desta entrega (AC1): cadastrar, listar e remover dispositivos.
-Filtros, heartbeat e dashboard entram nas próximas entregas.
+Escopo acumulado:
+- AC1: cadastrar, listar e remover dispositivos.
+- AC2: filtro por local e por status, busca por nome e ordenação.
+Heartbeat e dashboard entram nas próximas entregas.
 """
 
 from fastapi import FastAPI, Depends, HTTPException
@@ -40,10 +42,67 @@ app.add_middleware(
 )
 
 
+# AC2: colunas que o front-end pode pedir para ordenar a lista.
+# Usamos uma lista fixa (em vez de aceitar qualquer texto vindo da URL)
+# para que o usuário só consiga ordenar por colunas que realmente existem.
+COLUNAS_ORDENAVEIS = {
+    "id": models.Dispositivo.id,
+    "nome": models.Dispositivo.nome,
+    "local": models.Dispositivo.local,
+    "status": models.Dispositivo.status,
+    "ultima_sincronizacao": models.Dispositivo.ultima_sincronizacao,
+}
+
+
 @app.get("/dispositivos", response_model=list[schemas.Dispositivo])
-def listar_dispositivos(db: Session = Depends(get_db)):
-    """AC1: lista todos os dispositivos cadastrados."""
-    return db.query(models.Dispositivo).all()
+def listar_dispositivos(
+    local: str | None = None,       # AC2: filtra pelo local exato
+    status: str | None = None,      # AC2: filtra por "online" ou "offline"
+    busca: str | None = None,       # AC2: texto que o nome precisa conter
+    ordenar_por: str = "id",        # AC2: coluna usada na ordenação
+    direcao: str = "asc",           # AC2: "asc" (crescente) ou "desc" (decrescente)
+    db: Session = Depends(get_db),
+):
+    """
+    AC1: lista os dispositivos cadastrados.
+    AC2: aceita filtros e ordenação opcionais, passados na URL (query params).
+    Ex: /dispositivos?local=Loja Centro&busca=totem&ordenar_por=nome
+
+    Todos os parâmetros são opcionais: sem nenhum deles, o comportamento é
+    o mesmo da AC1 (lista tudo). Quando vários filtros vêm juntos, eles se
+    combinam com "E" (o dispositivo precisa atender a todos).
+    """
+    # Montamos a consulta em partes: começa pegando tudo e vamos
+    # acrescentando um .filter() para cada filtro que veio preenchido.
+    query = db.query(models.Dispositivo)
+
+    if local:
+        query = query.filter(models.Dispositivo.local == local)
+    if status:
+        query = query.filter(models.Dispositivo.status == status)
+    if busca:
+        # ilike = LIKE sem diferenciar maiúscula de minúscula; os "%" são
+        # curingas de "qualquer coisa antes/depois" (busca por trecho do nome).
+        query = query.filter(models.Dispositivo.nome.ilike(f"%{busca}%"))
+
+    # Se vier uma coluna desconhecida, cai no "id" (ordem de cadastro).
+    coluna = COLUNAS_ORDENAVEIS.get(ordenar_por, models.Dispositivo.id)
+    query = query.order_by(coluna.desc() if direcao == "desc" else coluna.asc())
+
+    return query.all()
+
+
+@app.get("/locais", response_model=list[str])
+def listar_locais(db: Session = Depends(get_db)):
+    """
+    AC2: devolve os locais distintos já cadastrados (sem repetir).
+
+    Alimenta o <select> de filtro do front-end. Fica em uma rota separada
+    de propósito: se o select fosse montado com a lista já filtrada, ele
+    perderia as outras opções assim que o usuário escolhesse um local.
+    """
+    linhas = db.query(models.Dispositivo.local).distinct().order_by(models.Dispositivo.local).all()
+    return [linha[0] for linha in linhas]
 
 
 @app.post("/dispositivos", response_model=schemas.Dispositivo)

@@ -18,6 +18,17 @@ const tabelaCorpo = document.getElementById("tabela-corpo");
 const listaVazia = document.getElementById("lista-vazia");
 const mensagemErro = document.getElementById("mensagem-erro");
 
+// AC2: busca, filtros e cabeçalhos clicáveis (ordenação)
+const inputBusca = document.getElementById("input-busca");
+const filtroLocal = document.getElementById("filtro-local");
+const filtroStatus = document.getElementById("filtro-status");
+const cabecalhos = document.querySelectorAll("th[data-coluna]");
+
+// AC2: estado da ordenação atual (coluna e direção).
+// Começa em "id" (ordem de cadastro), igual ao comportamento da AC1.
+let ordenarPor = "id";
+let direcao = "asc";
+
 // ============================================================
 // TRATAMENTO DE ERRO
 // ============================================================
@@ -83,17 +94,57 @@ async function apiFetch(caminho, opcoes = {}) {
 // ============================================================
 
 /**
- * Busca todos os dispositivos na API e atualiza a tabela na tela.
- * É chamada sempre que algo muda: cadastro ou remoção.
+ * Busca os dispositivos na API e atualiza a tabela na tela.
+ * É chamada sempre que algo muda: cadastro, remoção, filtro, busca ou ordenação.
+ *
+ * AC2: monta a URL com os filtros que estão preenchidos na tela.
+ * Ex: /dispositivos?busca=totem&local=Loja+Centro&ordenar_por=nome&direcao=asc
  */
 async function carregarDispositivos() {
+  // URLSearchParams monta a parte "?chave=valor&..." já com os caracteres
+  // especiais codificados (espaços, vírgulas, acentos).
+  const params = new URLSearchParams();
+  if (inputBusca.value.trim()) params.set("busca", inputBusca.value.trim());
+  if (filtroLocal.value) params.set("local", filtroLocal.value);
+  if (filtroStatus.value) params.set("status", filtroStatus.value);
+  params.set("ordenar_por", ordenarPor);
+  params.set("direcao", direcao);
+
   try {
-    const resposta = await apiFetch("/dispositivos");
+    const resposta = await apiFetch(`/dispositivos?${params.toString()}`);
     const dispositivos = await resposta.json();
     renderizarTabela(dispositivos);
   } catch {
     // O erro já foi mostrado na tela pelo apiFetch — aqui só evitamos
     // que a exceção "suba" e quebre o restante da execução.
+  }
+}
+
+/**
+ * AC2: preenche o <select> de locais com os locais vindos da API (GET /locais).
+ *
+ * Usa uma rota própria (e não a lista de dispositivos já filtrada) porque,
+ * depois de filtrar por um local, a lista só teria esse local — e o select
+ * perderia todas as outras opções.
+ */
+async function carregarLocais() {
+  try {
+    const resposta = await apiFetch("/locais");
+    const locais = await resposta.json();
+    const selecionado = filtroLocal.value; // guarda a escolha atual antes de reconstruir
+
+    filtroLocal.innerHTML = '<option value="">Todos os locais</option>';
+    locais.forEach((local) => {
+      const opcao = document.createElement("option");
+      opcao.value = local;
+      opcao.textContent = local;
+      filtroLocal.appendChild(opcao);
+    });
+
+    // Se o local escolhido ainda existe, mantém selecionado; senão volta pra "Todos".
+    filtroLocal.value = locais.includes(selecionado) ? selecionado : "";
+  } catch {
+    // Erro já exibido na tela pelo apiFetch.
   }
 }
 
@@ -136,6 +187,7 @@ form.addEventListener("submit", async (evento) => {
     // Só limpa o formulário e recarrega a lista se o cadastro deu certo.
     inputNome.value = "";
     inputLocal.value = "";
+    await carregarLocais(); // AC2: o local cadastrado pode ser novo no filtro
     await carregarDispositivos();
   } catch {
     // Erro já exibido na tela pelo apiFetch; não faz nada além disso.
@@ -151,6 +203,7 @@ tabelaCorpo.addEventListener("click", async (evento) => {
 
   try {
     await apiFetch(`/dispositivos/${botao.dataset.id}`, { method: "DELETE" });
+    await carregarLocais(); // AC2: o local removido pode não existir mais
     await carregarDispositivos();
   } catch {
     // Erro já exibido na tela pelo apiFetch.
@@ -158,7 +211,46 @@ tabelaCorpo.addEventListener("click", async (evento) => {
 });
 
 // ============================================================
-// INICIALIZAÇÃO
-// Carrega a lista assim que a página abre, sem precisar de nenhuma ação do usuário.
+// AC2: BUSCA, FILTROS E ORDENAÇÃO
 // ============================================================
+
+// Trocar o local ou o status recarrega a lista já filtrada.
+filtroLocal.addEventListener("change", carregarDispositivos);
+filtroStatus.addEventListener("change", carregarDispositivos);
+
+// Busca por nome enquanto digita. O setTimeout espera 300 ms sem digitação
+// antes de consultar a API — assim não fazemos uma requisição por letra.
+let temporizadorBusca;
+inputBusca.addEventListener("input", () => {
+  clearTimeout(temporizadorBusca);
+  temporizadorBusca = setTimeout(carregarDispositivos, 300);
+});
+
+// Clique no cabeçalho da tabela: ordena pela coluna clicada.
+// Clicar de novo na mesma coluna inverte a direção (crescente <-> decrescente).
+cabecalhos.forEach((th) => {
+  th.addEventListener("click", () => {
+    const coluna = th.dataset.coluna;
+    direcao = coluna === ordenarPor && direcao === "asc" ? "desc" : "asc";
+    ordenarPor = coluna;
+    atualizarSetas();
+    carregarDispositivos();
+  });
+});
+
+/** Mostra ▲ ou ▼ só no cabeçalho da coluna usada na ordenação atual. */
+function atualizarSetas() {
+  cabecalhos.forEach((th) => {
+    const ativa = th.dataset.coluna === ordenarPor;
+    th.classList.toggle("ativa", ativa);
+    th.querySelector(".seta").textContent = ativa ? (direcao === "asc" ? "▲" : "▼") : "";
+  });
+}
+
+// ============================================================
+// INICIALIZAÇÃO
+// Carrega os locais do filtro e a lista assim que a página abre,
+// sem precisar de nenhuma ação do usuário.
+// ============================================================
+carregarLocais();
 carregarDispositivos();

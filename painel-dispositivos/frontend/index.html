@@ -29,13 +29,28 @@
     </section>
 
     <section class="painel-lista">
+      <!-- AC2: busca por nome e filtros por local e status.
+           As opções do select de locais são preenchidas via script.js (GET /locais). -->
+      <div class="filtros">
+        <input type="text" id="input-busca" placeholder="Buscar por nome..." />
+        <select id="filtro-local">
+          <option value="">Todos os locais</option>
+        </select>
+        <select id="filtro-status">
+          <option value="">Todos os status</option>
+          <option value="online">Online</option>
+          <option value="offline">Offline</option>
+        </select>
+      </div>
+
       <table id="tabela-dispositivos">
         <thead>
+          <!-- AC2: clicar em um cabeçalho com data-coluna ordena a tabela por aquela coluna -->
           <tr>
-            <th>Nome</th>
-            <th>Local</th>
-            <th>Status</th>
-            <th>Última sincronização</th>
+            <th data-coluna="nome">Nome <span class="seta"></span></th>
+            <th data-coluna="local">Local <span class="seta"></span></th>
+            <th data-coluna="status">Status <span class="seta"></span></th>
+            <th data-coluna="ultima_sincronizacao">Última sincronização <span class="seta"></span></th>
             <th></th>
           </tr>
         </thead>
@@ -43,7 +58,7 @@
           <!-- linhas geradas via script.js -->
         </tbody>
       </table>
-      <p id="lista-vazia" class="lista-vazia" hidden>Nenhum dispositivo cadastrado ainda.</p>
+      <p id="lista-vazia" class="lista-vazia" hidden>Nenhum dispositivo encontrado.</p>
     </section>
   </main>
 
