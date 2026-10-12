@@ -15,7 +15,7 @@ Heartbeat e dashboard entram nas próximas entregas.
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-
+from typing import Any
 import models
 import schemas
 from database import engine, get_db
@@ -45,7 +45,7 @@ app.add_middleware(
 # AC2: colunas que o front-end pode pedir para ordenar a lista.
 # Usamos uma lista fixa (em vez de aceitar qualquer texto vindo da URL)
 # para que o usuário só consiga ordenar por colunas que realmente existem.
-COLUNAS_ORDENAVEIS = {
+COLUNAS_ORDENAVEIS: dict[str, Any] = {
     "id": models.Dispositivo.id,
     "nome": models.Dispositivo.nome,
     "local": models.Dispositivo.local,
@@ -86,7 +86,7 @@ def listar_dispositivos(
         query = query.filter(models.Dispositivo.nome.ilike(f"%{busca}%"))
 
     # Se vier uma coluna desconhecida, cai no "id" (ordem de cadastro).
-    coluna = COLUNAS_ORDENAVEIS.get(ordenar_por, models.Dispositivo.id)
+    coluna = COLUNAS_ORDENAVEIS.get(ordenar_por, COLUNAS_ORDENAVEIS["id"])
     query = query.order_by(coluna.desc() if direcao == "desc" else coluna.asc())
 
     return query.all()
