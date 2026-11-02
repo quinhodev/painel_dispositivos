@@ -1,5 +1,5 @@
 """
-Ponto de entrada da API (rotas HTTP) — versão AC2.
+Ponto de entrada da API (rotas HTTP) — versão AC3.
 
 Este arquivo só ORQUESTRA: recebe a requisição, valida com schemas.py,
 manda os models.py conversarem com o banco via database.py, e devolve
@@ -9,13 +9,18 @@ aqui sem passar pelas camadas de baixo.
 Escopo acumulado:
 - AC1: cadastrar, listar e remover dispositivos.
 - AC2: filtro por local e por status, busca por nome e ordenação.
-Heartbeat e dashboard entram nas próximas entregas.
+- AC3: heartbeat (o dispositivo avisa que está ativo) e marcação automática
+  como offline quando fica tempo demais sem avisar.
+O dashboard entra na entrega final.
 """
+
+import datetime
+from typing import Any
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import Any
+
 import models
 import schemas
 from database import engine, get_db
@@ -42,9 +47,43 @@ app.add_middleware(
 )
 
 
+# AC3: tempo máximo (em minutos) que um dispositivo pode ficar sem enviar
+# heartbeat antes de ser marcado como offline. Em um sistema real seria
+# maior (vários minutos); está curto para dar pra mostrar no vídeo.
+TEMPO_LIMITE_MINUTOS = 1
+
+
+def agora_utc() -> datetime.datetime:
+    """
+    AC3: data/hora atual em UTC, sem informação de fuso.
+
+    O models.py grava ultima_sincronizacao em UTC sem fuso (datetime.utcnow),
+    então usamos o mesmo formato aqui para poder comparar as duas datas.
+    """
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
+def marcar_offline_expirados(db: Session):
+    """
+    AC3: marca como "offline" os dispositivos online que estão sem heartbeat
+    há mais de TEMPO_LIMITE_MINUTOS.
+
+    Em vez de rodar um processo em segundo plano, essa checagem acontece
+    sempre que alguém pede a lista. Assim o status mostrado (e os filtros
+    por status) nunca ficam desatualizados.
+    """
+    limite = agora_utc() - datetime.timedelta(minutes=TEMPO_LIMITE_MINUTOS)
+    db.query(models.Dispositivo).filter(
+        models.Dispositivo.status == "online",
+        models.Dispositivo.ultima_sincronizacao < limite,
+    ).update({"status": "offline"}, synchronize_session=False)
+    db.commit()
+
+
 # AC2: colunas que o front-end pode pedir para ordenar a lista.
 # Usamos uma lista fixa (em vez de aceitar qualquer texto vindo da URL)
 # para que o usuário só consiga ordenar por colunas que realmente existem.
+# (O tipo dict[str, Any] só evita avisos do editor com os tipos do SQLAlchemy.)
 COLUNAS_ORDENAVEIS: dict[str, Any] = {
     "id": models.Dispositivo.id,
     "nome": models.Dispositivo.nome,
@@ -67,11 +106,15 @@ def listar_dispositivos(
     AC1: lista os dispositivos cadastrados.
     AC2: aceita filtros e ordenação opcionais, passados na URL (query params).
     Ex: /dispositivos?local=Loja Centro&busca=totem&ordenar_por=nome
+    AC3: antes de listar, marca como offline quem está sem heartbeat há muito tempo.
 
     Todos os parâmetros são opcionais: sem nenhum deles, o comportamento é
     o mesmo da AC1 (lista tudo). Quando vários filtros vêm juntos, eles se
     combinam com "E" (o dispositivo precisa atender a todos).
     """
+    # AC3: atualiza os status vencidos antes de consultar.
+    marcar_offline_expirados(db)
+
     # Montamos a consulta em partes: começa pegando tudo e vamos
     # acrescentando um .filter() para cada filtro que veio preenchido.
     query = db.query(models.Dispositivo)
@@ -132,3 +175,25 @@ def remover_dispositivo(dispositivo_id: int, db: Session = Depends(get_db)):
     db.delete(dispositivo)
     db.commit()
     return {"ok": True}
+
+
+@app.post("/dispositivos/{dispositivo_id}/heartbeat", response_model=schemas.Dispositivo)
+def heartbeat(dispositivo_id: int, db: Session = Depends(get_db)):
+    """
+    AC3: o dispositivo avisa que está ativo ("heartbeat" = batimento cardíaco).
+
+    Em um sistema real, o próprio player de sinalização chamaria esta rota
+    de tempos em tempos. Aqui, o botão "Heartbeat" da tela simula isso.
+    A cada chamada o dispositivo passa para "online" e a data da última
+    sincronização é atualizada para o momento atual.
+    """
+    dispositivo = db.query(models.Dispositivo).filter(models.Dispositivo.id == dispositivo_id).first()
+    if not dispositivo:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado")
+
+    db.query(models.Dispositivo).filter(models.Dispositivo.id == dispositivo_id).update(
+        {"status": "online", "ultima_sincronizacao": agora_utc()}
+    )
+    db.commit()
+    db.refresh(dispositivo)  # recarrega o objeto já com os valores novos
+    return dispositivo

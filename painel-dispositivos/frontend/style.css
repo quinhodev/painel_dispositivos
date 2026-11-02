@@ -218,6 +218,25 @@ td {
   background: var(--green);
 }
 
+/* AC3: indicador de "há quanto tempo" desde a última sincronização.
+   Verde = recente, âmbar = já faz alguns minutos, vermelho = faz muito tempo. */
+.tempo {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.tempo.tempo-recente {
+  color: var(--green);
+}
+
+.tempo.tempo-medio {
+  color: var(--amber);
+}
+
+.tempo.tempo-antigo {
+  color: var(--red);
+}
+
 .acoes {
   display: flex;
   gap: 8px;

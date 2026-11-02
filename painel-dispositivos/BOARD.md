@@ -13,9 +13,9 @@
 - ✅ Ordenação por coluna
 
 ## AC3 — Status e monitoramento
-- ❌ Endpoint de heartbeat
-- ❌ Indicador de "há quanto tempo" da última sincronização
-- ❌ (opcional) Marcar offline automaticamente sem heartbeat
+- ✅ Endpoint de heartbeat
+- ✅ Indicador de "há quanto tempo" da última sincronização
+- ✅ (opcional) Marcar offline automaticamente sem heartbeat
 
 ## Entrega final — Refinamento
 - ❌ Autenticação simples

@@ -42,9 +42,16 @@ Basta abrir `frontend/index.html` no navegador (duplo clique, ou com a extensão
 - [x] Filtro por status (online/offline)
 - [x] Ordenação por coluna (clique no cabeçalho; clicar de novo inverte a direção)
 
+**AC3 — Status e monitoramento**
+
+- [x] Endpoint de heartbeat (`POST /dispositivos/{id}/heartbeat`): o dispositivo avisa que está ativo e vira online
+- [x] Botão "Heartbeat" na tela, simulando o dispositivo reportando atividade
+- [x] Indicador de "há quanto tempo" desde a última sincronização (atualiza a cada segundo, com cor verde/âmbar/vermelha)
+- [x] Marcação automática como offline sem heartbeat (padrão: 1 minuto, ajustável em `TEMPO_LIMITE_MINUTOS`)
+- [x] Atualização automática da lista a cada 10 segundos
+
 **Planejado**
 
-- [ ] AC3: endpoint de heartbeat e "há quanto tempo" da última sincronização
 - [ ] Entrega final: autenticação, exportação CSV, dashboard e polimento
 
 ## Endpoints
@@ -55,6 +62,7 @@ Basta abrir `frontend/index.html` no navegador (duplo clique, ou com a extensão
 | GET | `/locais` | Locais distintos cadastrados (alimenta o filtro) |
 | POST | `/dispositivos` | Cadastra (`nome`, `local`) |
 | DELETE | `/dispositivos/{id}` | Remove |
+| POST | `/dispositivos/{id}/heartbeat` | Marca o dispositivo como online e atualiza a última sincronização |
 
 ## Estrutura
 
@@ -75,4 +83,4 @@ painel-dispositivos/
 
 ## Próximos passos (ver BOARD.md)
 
-AC3 (heartbeat e monitoramento) e, na entrega final, autenticação simples, exportação de relatório e dashboard.
+Na entrega final: autenticação simples, exportação de relatório e dashboard com métricas.

@@ -6,6 +6,11 @@
 // no back-end (ex: uvicorn main:app --port 8001), atualize aqui também.
 const API_URL = "http://127.0.0.1:8000";
 
+// AC3: de quanto em quanto tempo (em milissegundos) a lista é buscada de novo
+// na API sozinha, para o status e o "há quanto tempo" acompanharem o que
+// está acontecendo sem precisar recarregar a página.
+const INTERVALO_ATUALIZACAO_MS = 10000;
+
 // ============================================================
 // REFERÊNCIAS AOS ELEMENTOS DA TELA (HTML)
 // Pegamos tudo uma vez só, no início, pra não ficar buscando
@@ -148,6 +153,36 @@ async function carregarLocais() {
   }
 }
 
+/**
+ * AC3: converte a data vinda da API em um objeto Date.
+ *
+ * O back-end guarda a data em UTC, mas o JSON chega sem fuso (sem o "Z"
+ * no final). Sem o "Z", o navegador entende como horário local e a conta
+ * de "há quanto tempo" sai errada (a diferença seria de algumas horas).
+ */
+function paraDataUTC(texto) {
+  const temFuso = /Z|[+-]\d\d:\d\d$/.test(texto);
+  return new Date(temFuso ? texto : texto + "Z");
+}
+
+/** AC3: transforma segundos em um texto curto ("há 30 s", "há 2 min", "há 3 h"...). */
+function formatarTempo(segundos) {
+  if (segundos < 5) return "agora";
+  if (segundos < 60) return `há ${segundos} s`;
+  const minutos = Math.floor(segundos / 60);
+  if (minutos < 60) return `há ${minutos} min`;
+  const horas = Math.floor(minutos / 60);
+  if (horas < 24) return `há ${horas} h`;
+  return `há ${Math.floor(horas / 24)} d`;
+}
+
+/** AC3: escolhe a cor do indicador conforme o tempo (verde, âmbar ou vermelho). */
+function classeTempo(segundos) {
+  if (segundos < 60) return "tempo-recente";
+  if (segundos < 300) return "tempo-medio";
+  return "tempo-antigo";
+}
+
 /** Recria as linhas da tabela a partir da lista de dispositivos vinda da API. */
 function renderizarTabela(dispositivos) {
   tabelaCorpo.innerHTML = "";
@@ -155,18 +190,39 @@ function renderizarTabela(dispositivos) {
 
   dispositivos.forEach((d) => {
     const linha = document.createElement("tr");
-    const dataFormatada = new Date(d.ultima_sincronizacao).toLocaleString("pt-BR");
+    const dataSincronizacao = paraDataUTC(d.ultima_sincronizacao);
+    const dataFormatada = dataSincronizacao.toLocaleString("pt-BR");
 
+    // AC3: guardamos o instante da sincronização no próprio elemento (data-instante)
+    // para o relógio da tela (atualizarTempos) recalcular o "há quanto tempo"
+    // a cada segundo, sem precisar chamar a API.
     linha.innerHTML = `
       <td>${d.nome}</td>
       <td>${d.local}</td>
       <td><span class="status-pill ${d.status}">${d.status}</span></td>
       <td>${dataFormatada}</td>
+      <td class="tempo" data-instante="${dataSincronizacao.getTime()}"></td>
       <td class="acoes">
-        <button class="perigo" data-id="${d.id}">Remover</button>
+        <button class="secundario" data-acao="heartbeat" data-id="${d.id}">Heartbeat</button>
+        <button class="perigo" data-acao="remover" data-id="${d.id}">Remover</button>
       </td>
     `;
     tabelaCorpo.appendChild(linha);
+  });
+
+  atualizarTempos(); // já preenche o "há quanto tempo" sem esperar o próximo segundo
+}
+
+/**
+ * AC3: recalcula o "há quanto tempo" de todas as linhas da tabela.
+ * Roda uma vez por segundo (ver INICIALIZAÇÃO) e só mexe na tela.
+ */
+function atualizarTempos() {
+  document.querySelectorAll("td.tempo").forEach((celula) => {
+    const instante = Number(celula.dataset.instante);
+    const segundos = Math.max(0, Math.floor((Date.now() - instante) / 1000));
+    celula.textContent = formatarTempo(segundos);
+    celula.className = `tempo ${classeTempo(segundos)}`;
   });
 }
 
@@ -194,16 +250,23 @@ form.addEventListener("submit", async (evento) => {
   }
 });
 
-// Clique no botão "Remover" de cada linha da tabela.
+// Clique nos botões de cada linha da tabela ("Heartbeat" e "Remover").
 // Usamos delegação de evento (um listener só na tabela, não um por botão)
 // porque as linhas são recriadas toda vez que a lista atualiza.
 tabelaCorpo.addEventListener("click", async (evento) => {
   const botao = evento.target.closest("button");
   if (!botao) return; // clique fora de um botão (ex: numa célula vazia), ignora
 
+  const id = botao.dataset.id;
+
   try {
-    await apiFetch(`/dispositivos/${botao.dataset.id}`, { method: "DELETE" });
-    await carregarLocais(); // AC2: o local removido pode não existir mais
+    if (botao.dataset.acao === "heartbeat") {
+      // AC3: simula o dispositivo avisando que está ativo (vira "online").
+      await apiFetch(`/dispositivos/${id}/heartbeat`, { method: "POST" });
+    } else {
+      await apiFetch(`/dispositivos/${id}`, { method: "DELETE" });
+      await carregarLocais(); // AC2: o local removido pode não existir mais
+    }
     await carregarDispositivos();
   } catch {
     // Erro já exibido na tela pelo apiFetch.
@@ -254,3 +317,9 @@ function atualizarSetas() {
 // ============================================================
 carregarLocais();
 carregarDispositivos();
+
+// AC3: monitoramento em tempo (quase) real.
+// - a cada INTERVALO_ATUALIZACAO_MS busca a lista de novo (pega mudanças de status);
+// - a cada 1 segundo só recalcula o "há quanto tempo" na tela.
+setInterval(carregarDispositivos, INTERVALO_ATUALIZACAO_MS);
+setInterval(atualizarTempos, 1000);
