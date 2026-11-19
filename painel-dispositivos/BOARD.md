@@ -18,7 +18,7 @@
 - ✅ (opcional) Marcar offline automaticamente sem heartbeat
 
 ## Entrega final — Refinamento
-- ❌ Autenticação simples
-- ❌ Exportação de relatório (CSV)
-- ❌ Dashboard com métricas
-- ❌ Polimento visual e testes finais
+- ✅ Autenticação simples
+- ✅ Exportação de relatório (CSV)
+- ✅ Dashboard com métricas
+- ✅ Polimento visual e testes finais

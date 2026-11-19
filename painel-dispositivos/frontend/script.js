@@ -34,6 +34,22 @@ const cabecalhos = document.querySelectorAll("th[data-coluna]");
 let ordenarPor = "id";
 let direcao = "asc";
 
+// FINAL: login, dashboard no topo e exportação
+const CHAVE_TOKEN = "painel_token"; // nome com que o token fica guardado no navegador
+const telaLogin = document.getElementById("tela-login");
+const conteudoPrincipal = document.getElementById("conteudo-principal");
+const topbarAcoes = document.getElementById("topbar-acoes");
+const formLogin = document.getElementById("form-login");
+const inputUsuario = document.getElementById("input-usuario");
+const inputSenha = document.getElementById("input-senha");
+const loginErro = document.getElementById("login-erro");
+const botaoSair = document.getElementById("botao-sair");
+const botaoExportar = document.getElementById("botao-exportar");
+const resumoTotal = document.getElementById("resumo-total");
+const resumoOnline = document.getElementById("resumo-online");
+const resumoOffline = document.getElementById("resumo-offline");
+const resumoPercentual = document.getElementById("resumo-percentual");
+
 // ============================================================
 // TRATAMENTO DE ERRO
 // ============================================================
@@ -65,9 +81,14 @@ function limparErro() {
  * aqui, então só precisamos tratar o erro em um lugar.
  */
 async function apiFetch(caminho, opcoes = {}) {
+  // FINAL: toda chamada leva o token do login no cabeçalho Authorization.
+  const token = obterToken();
+  const headers = { ...(opcoes.headers || {}) };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   let resposta;
   try {
-    resposta = await fetch(`${API_URL}${caminho}`, opcoes);
+    resposta = await fetch(`${API_URL}${caminho}`, { ...opcoes, headers });
   } catch (erro) {
     // Esse "catch" pega falhas de rede/conexão (API fora do ar, CORS, etc.)
     mostrarErro(
@@ -78,6 +99,12 @@ async function apiFetch(caminho, opcoes = {}) {
   }
 
   if (!resposta.ok) {
+    // FINAL: 401 = não está logado ou a sessão expirou -> volta para a tela de login.
+    if (resposta.status === 401) {
+      encerrarSessao("Sua sessão expirou. Entre novamente.");
+      throw new Error("Não autenticado");
+    }
+
     // A conexão funcionou, mas a API respondeu com erro (400, 404, 500...)
     let detalhe = "";
     try {
@@ -99,13 +126,11 @@ async function apiFetch(caminho, opcoes = {}) {
 // ============================================================
 
 /**
- * Busca os dispositivos na API e atualiza a tabela na tela.
- * É chamada sempre que algo muda: cadastro, remoção, filtro, busca ou ordenação.
- *
- * AC2: monta a URL com os filtros que estão preenchidos na tela.
- * Ex: /dispositivos?busca=totem&local=Loja+Centro&ordenar_por=nome&direcao=asc
+ * FINAL: monta os parâmetros de URL a partir dos filtros e da ordenação
+ * que estão na tela. Usada tanto pela lista quanto pela exportação CSV,
+ * para o relatório sair exatamente como o usuário está vendo.
  */
-async function carregarDispositivos() {
+function montarParametros() {
   // URLSearchParams monta a parte "?chave=valor&..." já com os caracteres
   // especiais codificados (espaços, vírgulas, acentos).
   const params = new URLSearchParams();
@@ -114,11 +139,24 @@ async function carregarDispositivos() {
   if (filtroStatus.value) params.set("status", filtroStatus.value);
   params.set("ordenar_por", ordenarPor);
   params.set("direcao", direcao);
+  return params;
+}
+
+/**
+ * Busca os dispositivos na API e atualiza a tabela na tela.
+ * É chamada sempre que algo muda: cadastro, remoção, filtro, busca ou ordenação.
+ *
+ * AC2: monta a URL com os filtros que estão preenchidos na tela.
+ * Ex: /dispositivos?busca=totem&local=Loja+Centro&ordenar_por=nome&direcao=asc
+ */
+async function carregarDispositivos() {
+  const params = montarParametros();
 
   try {
     const resposta = await apiFetch(`/dispositivos?${params.toString()}`);
     const dispositivos = await resposta.json();
     renderizarTabela(dispositivos);
+    carregarResumo(); // FINAL: mantém o dashboard do topo em dia com a lista
   } catch {
     // O erro já foi mostrado na tela pelo apiFetch — aqui só evitamos
     // que a exceção "suba" e quebre o restante da execução.
@@ -183,6 +221,20 @@ function classeTempo(segundos) {
   return "tempo-antigo";
 }
 
+/**
+ * FINAL: troca caracteres especiais de HTML por versões seguras.
+ * Sem isso, um nome como "<b>x</b>" (ou pior, um <script>) digitado no
+ * cadastro seria interpretado como HTML ao montar a tabela com innerHTML.
+ */
+function escaparHtml(texto) {
+  return String(texto)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** Recria as linhas da tabela a partir da lista de dispositivos vinda da API. */
 function renderizarTabela(dispositivos) {
   tabelaCorpo.innerHTML = "";
@@ -197,9 +249,9 @@ function renderizarTabela(dispositivos) {
     // para o relógio da tela (atualizarTempos) recalcular o "há quanto tempo"
     // a cada segundo, sem precisar chamar a API.
     linha.innerHTML = `
-      <td>${d.nome}</td>
-      <td>${d.local}</td>
-      <td><span class="status-pill ${d.status}">${d.status}</span></td>
+      <td>${escaparHtml(d.nome)}</td>
+      <td>${escaparHtml(d.local)}</td>
+      <td><span class="status-pill ${escaparHtml(d.status)}">${escaparHtml(d.status)}</span></td>
       <td>${dataFormatada}</td>
       <td class="tempo" data-instante="${dataSincronizacao.getTime()}"></td>
       <td class="acoes">
@@ -225,6 +277,126 @@ function atualizarTempos() {
     celula.className = `tempo ${classeTempo(segundos)}`;
   });
 }
+
+// ============================================================
+// FINAL: LOGIN E SESSÃO
+// ============================================================
+
+/** Devolve o token guardado no navegador (ou null se não estiver logado). */
+function obterToken() {
+  return sessionStorage.getItem(CHAVE_TOKEN);
+}
+
+/** Mostra só a tela de login (e opcionalmente uma mensagem, como "sessão expirada"). */
+function mostrarTelaLogin(mensagem = "") {
+  conteudoPrincipal.hidden = true;
+  topbarAcoes.hidden = true;
+  telaLogin.hidden = false;
+  loginErro.textContent = mensagem;
+  loginErro.hidden = !mensagem;
+  inputUsuario.focus();
+}
+
+/** Mostra o painel e carrega os dados (chamada depois de um login válido). */
+function mostrarApp() {
+  telaLogin.hidden = true;
+  conteudoPrincipal.hidden = false;
+  topbarAcoes.hidden = false;
+  carregarLocais();
+  carregarDispositivos();
+}
+
+/** Esquece o token e volta para o login. */
+function encerrarSessao(mensagem = "") {
+  sessionStorage.removeItem(CHAVE_TOKEN);
+  mostrarTelaLogin(mensagem);
+}
+
+// Envio do formulário de login.
+// Aqui usamos fetch direto (e não o apiFetch) porque um 401 neste caso
+// significa "senha errada", e não "sessão expirada".
+formLogin.addEventListener("submit", async (evento) => {
+  evento.preventDefault();
+
+  try {
+    const resposta = await fetch(`${API_URL}/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usuario: inputUsuario.value, senha: inputSenha.value }),
+    });
+
+    if (!resposta.ok) {
+      loginErro.textContent =
+        resposta.status === 401 ? "Usuário ou senha inválidos." : `Erro ao entrar (${resposta.status}).`;
+      loginErro.hidden = false;
+      return;
+    }
+
+    const dados = await resposta.json();
+    sessionStorage.setItem(CHAVE_TOKEN, dados.token);
+    inputSenha.value = "";
+    loginErro.hidden = true;
+    mostrarApp();
+  } catch {
+    loginErro.textContent = "Não foi possível conectar à API. Verifique se o back-end está rodando.";
+    loginErro.hidden = false;
+  }
+});
+
+// Botão "Sair": avisa o servidor (para invalidar o token) e volta para o login.
+botaoSair.addEventListener("click", async () => {
+  try {
+    await apiFetch("/logout", { method: "POST" });
+  } catch {
+    // Mesmo que o servidor não responda, a sessão é encerrada aqui.
+  }
+  encerrarSessao();
+});
+
+// ============================================================
+// FINAL: DASHBOARD E EXPORTAÇÃO CSV
+// ============================================================
+
+/** Busca as métricas gerais (GET /dashboard/resumo) e preenche o topo da tela. */
+async function carregarResumo() {
+  try {
+    const resposta = await apiFetch("/dashboard/resumo");
+    const resumo = await resposta.json();
+    resumoTotal.textContent = resumo.total;
+    resumoOnline.textContent = resumo.online;
+    resumoOffline.textContent = resumo.offline;
+    resumoPercentual.textContent =
+      resumo.percentual_online.toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
+  } catch {
+    // Erro já exibido na tela pelo apiFetch.
+  }
+}
+
+/**
+ * Baixa o relatório CSV com os mesmos filtros e ordenação da tela.
+ *
+ * Não dá para usar um link comum (<a href>) porque a rota exige o token no
+ * cabeçalho. Por isso buscamos o arquivo com fetch, transformamos em um
+ * "blob" e disparamos o download por um link temporário.
+ */
+async function exportarCSV() {
+  try {
+    const resposta = await apiFetch(`/relatorio/csv?${montarParametros().toString()}`);
+    const blob = await resposta.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "dispositivos.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch {
+    // Erro já exibido na tela pelo apiFetch.
+  }
+}
+
+botaoExportar.addEventListener("click", exportarCSV);
 
 // ============================================================
 // AÇÕES DO USUÁRIO (eventos)
@@ -312,14 +484,20 @@ function atualizarSetas() {
 
 // ============================================================
 // INICIALIZAÇÃO
-// Carrega os locais do filtro e a lista assim que a página abre,
-// sem precisar de nenhuma ação do usuário.
+// FINAL: se já existe um login guardado, entra direto no painel e carrega
+// os dados; senão, mostra a tela de login.
 // ============================================================
-carregarLocais();
-carregarDispositivos();
+if (obterToken()) {
+  mostrarApp();
+} else {
+  mostrarTelaLogin();
+}
 
 // AC3: monitoramento em tempo (quase) real.
 // - a cada INTERVALO_ATUALIZACAO_MS busca a lista de novo (pega mudanças de status);
+//   (FINAL: só enquanto estiver logado)
 // - a cada 1 segundo só recalcula o "há quanto tempo" na tela.
-setInterval(carregarDispositivos, INTERVALO_ATUALIZACAO_MS);
+setInterval(() => {
+  if (obterToken()) carregarDispositivos();
+}, INTERVALO_ATUALIZACAO_MS);
 setInterval(atualizarTempos, 1000);

@@ -26,6 +26,23 @@ A API sobe em `http://127.0.0.1:8000`. Documentação automática (Swagger) em `
 
 Basta abrir `frontend/index.html` no navegador (duplo clique, ou com a extensão "Live Server" do VS Code). Ele já aponta para `http://127.0.0.1:8000`.
 
+### 3. Login
+
+O painel exige login. Credenciais padrão (projeto acadêmico local):
+
+- **Usuário:** `admin`
+- **Senha:** `admin123`
+
+Para trocar sem mexer no código, defina as variáveis de ambiente antes de subir o back-end:
+
+```powershell
+$env:PAINEL_USUARIO = "meu_usuario"
+$env:PAINEL_SENHA = "minha_senha"
+python -m uvicorn main:app --reload
+```
+
+O login é guardado só na memória do servidor: reiniciar o `uvicorn` (inclusive pelo `--reload` ao salvar um arquivo) exige entrar de novo. No Swagger (`/docs`), use o botão **Authorize** com o token devolvido por `POST /login`.
+
 ## Funcionalidades implementadas
 
 **AC1**
@@ -50,9 +67,13 @@ Basta abrir `frontend/index.html` no navegador (duplo clique, ou com a extensão
 - [x] Marcação automática como offline sem heartbeat (padrão: 1 minuto, ajustável em `TEMPO_LIMITE_MINUTOS`)
 - [x] Atualização automática da lista a cada 10 segundos
 
-**Planejado**
+**Entrega final — Refinamento**
 
-- [ ] Entrega final: autenticação, exportação CSV, dashboard e polimento
+- [x] Autenticação simples: login com token (`POST /login`), todas as rotas protegidas, botão "Sair" (`POST /logout`)
+- [x] Dashboard com métricas no topo: total, online, offline e % online (`GET /dashboard/resumo`)
+- [x] Exportação de relatório em CSV (`GET /relatorio/csv`), respeitando os filtros e a ordenação da tela
+- [x] Polimento: tela de login, proteção contra HTML injetado nos nomes, relatório protegido contra fórmulas de planilha e ajustes visuais
+- [x] Roteiro de testes finais (`TESTES.md`)
 
 ## Endpoints
 
@@ -63,6 +84,12 @@ Basta abrir `frontend/index.html` no navegador (duplo clique, ou com a extensão
 | POST | `/dispositivos` | Cadastra (`nome`, `local`) |
 | DELETE | `/dispositivos/{id}` | Remove |
 | POST | `/dispositivos/{id}/heartbeat` | Marca o dispositivo como online e atualiza a última sincronização |
+| POST | `/login` | Recebe `usuario` e `senha` e devolve um token (única rota sem login) |
+| POST | `/logout` | Encerra o login atual |
+| GET | `/dashboard/resumo` | Métricas gerais: total, online, offline e percentual online |
+| GET | `/relatorio/csv` | Exporta os dispositivos em CSV (aceita os mesmos filtros de `GET /dispositivos`) |
+
+Todas as rotas, exceto `POST /login`, exigem o cabeçalho `Authorization: Bearer <token>`.
 
 ## Estrutura
 
@@ -78,9 +105,13 @@ painel-dispositivos/
 │   ├── index.html
 │   ├── style.css
 │   └── script.js
-└── BOARD.md              # lista de funcionalidades por sprint (AC1–Final)
+├── BOARD.md              # lista de funcionalidades por sprint (AC1–Final)
+├── TESTES.md             # roteiro de testes finais
+└── docs/                 # diagrama de classes e diagrama de casos de uso (PNG e SVG)
 ```
 
-## Próximos passos (ver BOARD.md)
+## Próximos passos (ideias futuras)
 
-Na entrega final: autenticação simples, exportação de relatório e dashboard com métricas.
+- Um agente real nos players chamando o heartbeat de tempos em tempos (hoje o botão simula isso).
+- Usuários e senhas guardados no banco (hoje há um único usuário configurável).
+- Migração do SQLite para SQL Server, sem reescrever a lógica de acesso a dados.

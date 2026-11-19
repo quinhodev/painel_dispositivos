@@ -1,5 +1,5 @@
 """
-Ponto de entrada da API (rotas HTTP) — versão AC3.
+Ponto de entrada da API (rotas HTTP) — versão FINAL.
 
 Este arquivo só ORQUESTRA: recebe a requisição, valida com schemas.py,
 manda os models.py conversarem com o banco via database.py, e devolve
@@ -11,14 +11,20 @@ Escopo acumulado:
 - AC2: filtro por local e por status, busca por nome e ordenação.
 - AC3: heartbeat (o dispositivo avisa que está ativo) e marcação automática
   como offline quando fica tempo demais sem avisar.
-O dashboard entra na entrega final.
+- FINAL: autenticação simples (login com token), dashboard com métricas gerais
+  e exportação de relatório em CSV.
 """
 
+import csv
 import datetime
+import io
+import os
+import secrets
 from typing import Any
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 import models
@@ -80,6 +86,55 @@ def marcar_offline_expirados(db: Session):
     db.commit()
 
 
+# ============================================================
+# ENTREGA FINAL: AUTENTICAÇÃO SIMPLES
+# ============================================================
+
+# Usuário e senha do painel. Podem ser trocados por variáveis de ambiente
+# (PAINEL_USUARIO e PAINEL_SENHA) sem mexer no código; se não existirem,
+# valem os padrões abaixo (suficientes para um projeto acadêmico local).
+USUARIO_ADMIN = os.environ.get("PAINEL_USUARIO", "admin")
+SENHA_ADMIN = os.environ.get("PAINEL_SENHA", "admin123")
+
+# Por quanto tempo um login continua valendo.
+TOKEN_VALIDADE_HORAS = 8
+
+# Logins ativos: {token: data/hora em que expira}. Fica só na memória do
+# servidor, então reiniciar o uvicorn derruba todos os logins (é esperado).
+TOKENS: dict[str, datetime.datetime] = {}
+
+# O HTTPBearer lê o cabeçalho "Authorization: Bearer <token>" e também faz
+# aparecer o botão "Authorize" no Swagger (/docs). Usamos auto_error=False
+# porque a mensagem de erro (401) é montada na função exigir_login.
+esquema_bearer = HTTPBearer(auto_error=False)
+
+
+def exigir_login(credenciais: HTTPAuthorizationCredentials | None = Depends(esquema_bearer)) -> str:
+    """
+    Dependência que protege as rotas: só deixa passar quem enviou um token
+    válido no cabeçalho Authorization. Caso contrário, responde 401
+    ("não autenticado") e a rota nem chega a ser executada.
+
+    Devolve o próprio token (a rota de logout usa isso para encerrá-lo).
+    """
+    if credenciais is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Login necessário",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = credenciais.credentials
+    expira_em = TOKENS.get(token)
+    if expira_em is None or expira_em < agora_utc():
+        TOKENS.pop(token, None)  # limpa o token vencido, se existir
+        raise HTTPException(
+            status_code=401,
+            detail="Sessão inválida ou expirada",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
+
+
 # AC2: colunas que o front-end pode pedir para ordenar a lista.
 # Usamos uma lista fixa (em vez de aceitar qualquer texto vindo da URL)
 # para que o usuário só consiga ordenar por colunas que realmente existem.
@@ -93,24 +148,20 @@ COLUNAS_ORDENAVEIS: dict[str, Any] = {
 }
 
 
-@app.get("/dispositivos", response_model=list[schemas.Dispositivo])
-def listar_dispositivos(
-    local: str | None = None,       # AC2: filtra pelo local exato
-    status: str | None = None,      # AC2: filtra por "online" ou "offline"
-    busca: str | None = None,       # AC2: texto que o nome precisa conter
-    ordenar_por: str = "id",        # AC2: coluna usada na ordenação
-    direcao: str = "asc",           # AC2: "asc" (crescente) ou "desc" (decrescente)
-    db: Session = Depends(get_db),
+def consultar_dispositivos(
+    db: Session,
+    local: str | None,
+    status: str | None,
+    busca: str | None,
+    ordenar_por: str,
+    direcao: str,
 ):
     """
-    AC1: lista os dispositivos cadastrados.
-    AC2: aceita filtros e ordenação opcionais, passados na URL (query params).
-    Ex: /dispositivos?local=Loja Centro&busca=totem&ordenar_por=nome
-    AC3: antes de listar, marca como offline quem está sem heartbeat há muito tempo.
+    FINAL: monta e executa a consulta de dispositivos com filtros e ordenação.
 
-    Todos os parâmetros são opcionais: sem nenhum deles, o comportamento é
-    o mesmo da AC1 (lista tudo). Quando vários filtros vêm juntos, eles se
-    combinam com "E" (o dispositivo precisa atender a todos).
+    Foi separada da rota para ser reaproveitada: tanto a listagem
+    (GET /dispositivos) quanto a exportação CSV (GET /relatorio/csv) usam
+    exatamente a mesma consulta, então o relatório sempre bate com a tela.
     """
     # AC3: atualiza os status vencidos antes de consultar.
     marcar_offline_expirados(db)
@@ -135,7 +186,30 @@ def listar_dispositivos(
     return query.all()
 
 
-@app.get("/locais", response_model=list[str])
+@app.get("/dispositivos", response_model=list[schemas.Dispositivo], dependencies=[Depends(exigir_login)])
+def listar_dispositivos(
+    local: str | None = None,       # AC2: filtra pelo local exato
+    status: str | None = None,      # AC2: filtra por "online" ou "offline"
+    busca: str | None = None,       # AC2: texto que o nome precisa conter
+    ordenar_por: str = "id",        # AC2: coluna usada na ordenação
+    direcao: str = "asc",           # AC2: "asc" (crescente) ou "desc" (decrescente)
+    db: Session = Depends(get_db),
+):
+    """
+    AC1: lista os dispositivos cadastrados.
+    AC2: aceita filtros e ordenação opcionais, passados na URL (query params).
+    Ex: /dispositivos?local=Loja Centro&busca=totem&ordenar_por=nome
+    AC3: antes de listar, marca como offline quem está sem heartbeat há muito tempo.
+    FINAL: exige login (token no cabeçalho Authorization).
+
+    Todos os parâmetros são opcionais: sem nenhum deles, o comportamento é
+    o mesmo da AC1 (lista tudo). Quando vários filtros vêm juntos, eles se
+    combinam com "E" (o dispositivo precisa atender a todos).
+    """
+    return consultar_dispositivos(db, local, status, busca, ordenar_por, direcao)
+
+
+@app.get("/locais", response_model=list[str], dependencies=[Depends(exigir_login)])
 def listar_locais(db: Session = Depends(get_db)):
     """
     AC2: devolve os locais distintos já cadastrados (sem repetir).
@@ -148,7 +222,7 @@ def listar_locais(db: Session = Depends(get_db)):
     return [linha[0] for linha in linhas]
 
 
-@app.post("/dispositivos", response_model=schemas.Dispositivo)
+@app.post("/dispositivos", response_model=schemas.Dispositivo, dependencies=[Depends(exigir_login)])
 def criar_dispositivo(dispositivo: schemas.DispositivoCreate, db: Session = Depends(get_db)):
     """
     AC1: cadastra um novo dispositivo.
@@ -164,7 +238,7 @@ def criar_dispositivo(dispositivo: schemas.DispositivoCreate, db: Session = Depe
     return novo
 
 
-@app.delete("/dispositivos/{dispositivo_id}")
+@app.delete("/dispositivos/{dispositivo_id}", dependencies=[Depends(exigir_login)])
 def remover_dispositivo(dispositivo_id: int, db: Session = Depends(get_db)):
     """AC1: remove um dispositivo pelo id."""
     dispositivo = db.query(models.Dispositivo).filter(models.Dispositivo.id == dispositivo_id).first()
@@ -177,7 +251,7 @@ def remover_dispositivo(dispositivo_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@app.post("/dispositivos/{dispositivo_id}/heartbeat", response_model=schemas.Dispositivo)
+@app.post("/dispositivos/{dispositivo_id}/heartbeat", response_model=schemas.Dispositivo, dependencies=[Depends(exigir_login)])
 def heartbeat(dispositivo_id: int, db: Session = Depends(get_db)):
     """
     AC3: o dispositivo avisa que está ativo ("heartbeat" = batimento cardíaco).
@@ -197,3 +271,110 @@ def heartbeat(dispositivo_id: int, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(dispositivo)  # recarrega o objeto já com os valores novos
     return dispositivo
+
+
+# ============================================================
+# ENTREGA FINAL: LOGIN, DASHBOARD E EXPORTAÇÃO
+# ============================================================
+
+@app.post("/login", response_model=schemas.TokenResposta)
+def login(dados: schemas.LoginEntrada):
+    """
+    FINAL: confere usuário e senha e, se estiverem certos, devolve um token.
+
+    É a única rota que NÃO exige login. O front-end guarda o token e o envia
+    em todas as chamadas seguintes (cabeçalho "Authorization: Bearer <token>").
+    """
+    # compare_digest compara em tempo constante (não dá para descobrir a senha
+    # pelo tempo de resposta) e exige bytes para aceitar caracteres acentuados.
+    usuario_ok = secrets.compare_digest(dados.usuario.encode("utf-8"), USUARIO_ADMIN.encode("utf-8"))
+    senha_ok = secrets.compare_digest(dados.senha.encode("utf-8"), SENHA_ADMIN.encode("utf-8"))
+    if not (usuario_ok and senha_ok):
+        raise HTTPException(status_code=401, detail="Usuário ou senha inválidos")
+
+    token = secrets.token_urlsafe(32)  # texto aleatório e imprevisível
+    TOKENS[token] = agora_utc() + datetime.timedelta(hours=TOKEN_VALIDADE_HORAS)
+    return {"token": token}
+
+
+@app.post("/logout")
+def logout(token: str = Depends(exigir_login)):
+    """FINAL: encerra o login atual (o token deixa de valer)."""
+    TOKENS.pop(token, None)
+    return {"ok": True}
+
+
+@app.get("/dashboard/resumo", response_model=schemas.ResumoDashboard, dependencies=[Depends(exigir_login)])
+def resumo_dashboard(db: Session = Depends(get_db)):
+    """
+    FINAL: métricas gerais para o topo da tela: total de dispositivos,
+    quantos estão online/offline e o percentual online.
+    """
+    # Atualiza os status vencidos antes de contar, para os números baterem com a lista.
+    marcar_offline_expirados(db)
+
+    total = db.query(models.Dispositivo).count()
+    online = db.query(models.Dispositivo).filter(models.Dispositivo.status == "online").count()
+    offline = total - online
+    percentual_online = round(online / total * 100, 1) if total else 0.0
+
+    return {
+        "total": total,
+        "online": online,
+        "offline": offline,
+        "percentual_online": percentual_online,
+    }
+
+
+def proteger_csv(valor: Any) -> str:
+    """
+    Planilhas (Excel, Sheets) tratam texto que começa com = + - ou @ como
+    fórmula. Para um nome malicioso não virar fórmula no relatório, colocamos
+    um apóstrofo na frente.
+    """
+    texto = str(valor)
+    if texto and texto[0] in "=+-@":
+        return "'" + texto
+    return texto
+
+
+def formatar_data(data: Any) -> str:
+    """Formata a data para o relatório (continua em UTC, como está no banco)."""
+    return data.strftime("%d/%m/%Y %H:%M:%S")
+
+
+@app.get("/relatorio/csv", dependencies=[Depends(exigir_login)])
+def exportar_csv(
+    local: str | None = None,
+    status: str | None = None,
+    busca: str | None = None,
+    ordenar_por: str = "id",
+    direcao: str = "asc",
+    db: Session = Depends(get_db),
+):
+    """
+    FINAL: exporta os dispositivos em CSV, respeitando os mesmos filtros e a
+    mesma ordenação da listagem (o relatório é o que está na tela).
+    """
+    dispositivos: list[Any] = consultar_dispositivos(db, local, status, busca, ordenar_por, direcao)
+
+    saida = io.StringIO()
+    # Ponto e vírgula como separador: é o que o Excel em português espera.
+    escritor = csv.writer(saida, delimiter=";")
+    escritor.writerow(["ID", "Nome", "Local", "Status", "Última sincronização (UTC)"])
+    for d in dispositivos:
+        escritor.writerow([
+            d.id,
+            proteger_csv(d.nome),
+            proteger_csv(d.local),
+            d.status,
+            formatar_data(d.ultima_sincronizacao),
+        ])
+
+    # "\ufeff" (BOM) no começo faz o Excel reconhecer o UTF-8 e mostrar os acentos certos.
+    conteudo = "\ufeff" + saida.getvalue()
+    return Response(
+        content=conteudo,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="dispositivos.csv"'},
+    )

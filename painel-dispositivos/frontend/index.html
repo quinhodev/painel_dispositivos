@@ -12,9 +12,46 @@
       <h1>Painel de Dispositivos</h1>
       <p>Monitoramento e cadastro de telas / players</p>
     </div>
+
+    <!-- FINAL: dashboard (métricas gerais) e botão de sair. Só aparecem depois do login. -->
+    <div class="topbar-acoes" id="topbar-acoes" hidden>
+      <div class="resumo">
+        <div class="resumo-item">
+          <span class="resumo-valor" id="resumo-total">0</span>
+          <span class="resumo-rotulo">cadastrados</span>
+        </div>
+        <div class="resumo-item">
+          <span class="resumo-valor online" id="resumo-online">0</span>
+          <span class="resumo-rotulo">online</span>
+        </div>
+        <div class="resumo-item">
+          <span class="resumo-valor offline" id="resumo-offline">0</span>
+          <span class="resumo-rotulo">offline</span>
+        </div>
+        <div class="resumo-item">
+          <span class="resumo-valor percentual" id="resumo-percentual">0%</span>
+          <span class="resumo-rotulo">% online</span>
+        </div>
+      </div>
+      <button type="button" id="botao-sair" class="secundario">Sair</button>
+    </div>
   </header>
 
-  <main>
+  <!-- FINAL: tela de login. O script.js decide se mostra o login ou o painel. -->
+  <section id="tela-login" class="tela-login" hidden>
+    <div class="painel-login">
+      <h2>Entrar no painel</h2>
+      <p>Informe o usuário e a senha para acessar os dispositivos.</p>
+      <form id="form-login">
+        <input type="text" id="input-usuario" placeholder="Usuário" autocomplete="username" required />
+        <input type="password" id="input-senha" placeholder="Senha" autocomplete="current-password" required />
+        <p id="login-erro" class="login-erro" hidden></p>
+        <button type="submit">Entrar</button>
+      </form>
+    </div>
+  </section>
+
+  <main id="conteudo-principal" hidden>
     <!-- Faixa de aviso de erro: fica escondida por padrão e só aparece via JS
          quando alguma chamada à API falha (ex: back-end fora do ar) -->
     <div id="mensagem-erro" class="mensagem-erro" hidden></div>
@@ -41,6 +78,8 @@
           <option value="online">Online</option>
           <option value="offline">Offline</option>
         </select>
+        <!-- FINAL: exporta em CSV o que está na tela (mesmos filtros e ordenação) -->
+        <button type="button" id="botao-exportar" class="secundario">Exportar CSV</button>
       </div>
 
       <table id="tabela-dispositivos">

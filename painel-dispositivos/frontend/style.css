@@ -13,6 +13,12 @@
   box-sizing: border-box;
 }
 
+/* FINAL: garante que o atributo "hidden" esconda o elemento mesmo quando
+   ele tem display:flex no CSS (senão o login e o painel apareceriam juntos). */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);
@@ -256,6 +262,76 @@ td {
   color: var(--text-muted);
   text-align: center;
   padding: 24px 0 4px;
+}
+
+/* FINAL: topo com o dashboard e o botão de sair */
+.topbar-acoes {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+
+.resumo-valor.percentual {
+  color: var(--amber);
+}
+
+/* FINAL: tela de login */
+.tela-login {
+  display: flex;
+  justify-content: center;
+  padding: 80px 20px;
+}
+
+.painel-login {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 28px;
+}
+
+.painel-login h2 {
+  margin: 0 0 4px;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.painel-login p {
+  margin: 0 0 20px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+#form-login {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#form-login .login-erro {
+  margin: 0;
+  color: var(--red);
+  font-size: 0.88rem;
+}
+
+/* FINAL: polimento visual */
+button {
+  transition: filter 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+button.secundario:hover {
+  border-color: var(--amber);
+  color: var(--text);
+}
+
+button.perigo:hover {
+  background: rgba(229, 83, 75, 0.12);
+}
+
+tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.03);
 }
 
 @media (max-width: 640px) {

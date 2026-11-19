@@ -57,3 +57,26 @@ class Dispositivo(DispositivoBase):
         # (models.Dispositivo) para este schema, sem precisar montar
         # um dicionário na mão em cada rota.
         from_attributes = True
+
+
+# ============================================================
+# ENTREGA FINAL: login e dashboard
+# ============================================================
+
+class LoginEntrada(BaseModel):
+    """Corpo da requisição de login (POST /login)."""
+    usuario: str
+    senha: str
+
+
+class TokenResposta(BaseModel):
+    """Resposta do login: o token que o front-end envia nas próximas chamadas."""
+    token: str
+
+
+class ResumoDashboard(BaseModel):
+    """Métricas gerais mostradas no topo da tela (GET /dashboard/resumo)."""
+    total: int
+    online: int
+    offline: int
+    percentual_online: float
